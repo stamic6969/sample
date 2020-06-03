@@ -1,0 +1,117 @@
+package com.finastra.integration.component.processor.scripts
+
+import com.fasterxml.jackson.databind.JsonMappingException
+import com.finastra.integration.Messages.MessageTokenResolver
+import com.finastra.integration.Messages.MessageTokens
+import com.finastra.integration.component.processor.Helper.RuleHelper
+import com.finastra.integration.component.processor.RuleConstants.JSONConstants
+import com.misys.tools.integration.messaging.MchMessage
+import org.json.JSONObject
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory;
+
+
+String ruleFolderPath = contextData.RESOURCE_MANAGER.RuleProcessorResource.RULE_FOLDER_LOCATION;
+String schemaFolderPath = contextData.RESOURCE_MANAGER.RuleProcessorResource.SCHEMA_FOLDER_LOCATION;
+
+//To-Do : dealType & dealAction to be fetched from JSON - check fetchDealTypeFromMessage
+String dealType = contextData.RESOURCE_MANAGER.RuleProcessorResource.DEAL_TYPE;
+String dealAction = contextData.RESOURCE_MANAGER.RuleProcessorResource.DEAL_ACTION;
+String locale = contextData.RESOURCE_MANAGER.RuleProcessorResource.locale;
+final String DEAL_TYPE_PROPERTY = "dealType"
+final String DEAL_ACTION_PROPERTY = "dealAction"
+
+
+
+MchMessage queueMessage = data;
+String message = queueMessage.getMessageAsText();
+
+
+
+final String LoggerClass = "RuleProcessor"
+final Logger LOG = LoggerFactory.getLogger(LoggerClass);
+
+try {
+    if (validateMessage(message)) {
+
+        if (validateFileConfiguration(ruleFolderPath, schemaFolderPath, dealType, dealAction)) {
+
+            RuleEngine ruleEngine = new RuleEngine();
+            JSONObject inputJson = new JSONObject(message);
+            String ruleFilePath = getRuleFilePath(ruleFolderPath, dealType);
+            String schemaFilePath = getSchemaFilePath(schemaFolderPath, dealType);
+            MessageTokenResolver.setLocale(locale);
+            queueMessage.message = ruleEngine.execute(inputJson, ruleFilePath, schemaFilePath).toString();
+            queueMessage.setProperty(DEAL_TYPE_PROPERTY, dealType);
+            queueMessage.setProperty(DEAL_ACTION_PROPERTY, dealAction);
+
+        } else {
+            queueMessage.routeError(MessageTokenResolver.getMessage(MessageTokens.ERROR_INVALID_FFC_CONFIGURATION));
+        }
+    } else {
+
+        LOG.error(MessageTokenResolver.getMessage(MessageTokens.ERROR_EMPTY_INPUT))
+        queueMessage.routeError(MessageTokenResolver.getMessage(MessageTokens.ERROR_EMPTY_INPUT))
+    }
+}
+
+catch (JsonMappingException jsonMappingException) {
+    LOG.error(jsonMappingException.message);
+    queueMessage.routeError(MessageTokenResolver.getMessage(MessageTokens.ERROR_RULE_CONFIGURATION))
+}
+catch (Exception e) {
+    LOG.error(e.message);
+    queueMessage.routeError(e.message);
+}
+if (queueMessage.properties != null && queueMessage.properties.size() > 0 && queueMessage.properties.getProperty(MessageTokenResolver.getMessage(MessageTokens.ERROR_TEXT)) != null) {
+    LOG.error(queueMessage.properties.getProperty(MessageTokenResolver.getMessage(MessageTokens.ERROR_TEXT)));
+    return queueMessage.routeError(queueMessage.properties.getProperty(MessageTokenResolver.getMessage(MessageTokens.ERROR_TEXT)));
+} else {
+    return queueMessage;
+}
+
+
+
+private boolean validateFileConfiguration(String ruleFilePath, String schemaFilePath, String dealType, String dealAction) {
+
+    boolean isValidConfiguration = false;
+    if (!RuleHelper.isNullOrEmpty(ruleFilePath) && !RuleHelper.isNullOrEmpty(schemaFilePath) && !RuleHelper.isNullOrEmpty(dealType))
+        isValidConfiguration = true;
+    else if (RuleHelper.isNullOrEmpty(ruleFilePath)) {
+        throw new Exception(MessageTokenResolver.getMessage(MessageTokens.ERROR_RULE_FILE_NOT_FOUND));
+    } else if (RuleHelper.isNullOrEmpty(schemaFilePath)) {
+        throw new Exception(MessageTokenResolver.getMessage(MessageTokens.ERROR_SCHEMA_FILE_NOT_FOUND));
+    } else if (RuleHelper.isNullOrEmpty(dealType)) {
+        throw new Exception(MessageTokenResolver.getMessage(MessageTokens.ERROR_INVALID_DEAL_TYPE));
+    } else if (RuleHelper.isNullOrEmpty(dealAction)) {
+        throw new Exception(MessageTokenResolver.getMessage(MessageTokens.ERROR_INVALID_DEAL_ACTION));
+    }
+
+    return isValidConfiguration;
+}
+
+
+private boolean validateMessage(String message) {
+
+    return !RuleHelper.isNullOrEmpty(message);
+
+}
+
+private String getDealType(String dealType) {
+    //This method will return value for securities until the mapping from BBG is confirmed for fetching dealtype
+
+    return dealType;
+}
+
+
+private String getRuleFilePath(String ruleFolderPath, String dealType) {
+    String ruleFilePath = ruleFolderPath + JSONConstants.BACK_SLASH_FOR_PATH + dealType + JSONConstants.RULE_FILE_EXTENSION;
+    return ruleFilePath;
+
+}
+
+private String getSchemaFilePath(String schemaFolderPath, String dealType) {
+    String schemaFilePath = schemaFolderPath + JSONConstants.BACK_SLASH_FOR_PATH + dealType + JSONConstants.JSON_FILE_EXTENSION;
+    return schemaFilePath;
+
+}
